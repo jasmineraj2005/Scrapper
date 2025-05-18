@@ -1,0 +1,8 @@
+.env 
+*.pkl # Ignore pickle files (like cookies.pkl)
+*.log # Ignore log files
+__pycache__/ # Ignore Python cache directory
+debug_*.html
+*.png
+bio.txt
+profile_data.json
