@@ -1,0 +1,5 @@
+selenium
+undetected-chromedriver
+beautifulsoup4
+openai
+python-dotenv # Needed if you use the .env file approach
