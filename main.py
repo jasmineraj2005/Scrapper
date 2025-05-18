@@ -14,20 +14,28 @@ from selenium.common.exceptions import (
 )
 from bs4 import BeautifulSoup
 import logging
+from dotenv import load_dotenv # Assuming you are using a .env file
+
+load_dotenv() # Load environment variables from .env file
 
 # --- Configuration ---
 COOKIE_FILE = "cookies.pkl"
 LOG_FILE = "scraper.log"
-SCROLL_PAUSE_TIME = 2
+SCROLL_PAUSE_TIME = 1.5 # Slightly faster scroll pause
 MAX_SCROLLS = 20
-PAGE_LOAD_TIMEOUT = 90
-ELEMENT_TIMEOUT = 15
+PAGE_LOAD_TIMEOUT = 60 # Reduced page load timeout slightly
+ELEMENT_TIMEOUT = 10   # Reduced element timeout slightly
 
-PROXIES = [] # Add your proxies here if needed
+# List of proxies (format: "http://user:pass@host:port" or "http://host:port")
+PROXIES = [
+    # "http://user:pass@proxy1:port",
+    # "http://user:pass@proxy2:port",
+    # Add more proxies if you have them
+]
 
-# Configure logging
+# Configure logging (DEBUG level writes more detail to log_file)
 logging.basicConfig(
-    level=logging.INFO, # Default to INFO for less verbose console output
+    level=logging.INFO, # Default console output level
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE, encoding='utf-8'),
@@ -36,11 +44,14 @@ logging.basicConfig(
 )
 
 # --- Helper Functions ---
-def random_delay(a=1.0, b=4.0):
-    time.sleep(random.uniform(a, b))
-    logging.debug(f"Waited for {time.uniform(a, b):.2f} seconds.")
+def random_delay(a=1.0, b=3.0): # Slightly shorter random range
+    """Adds a random delay to simulate human behavior."""
+    delay = random.uniform(a, b)
+    time.sleep(delay)
+    logging.debug(f"Waited for {delay:.2f} seconds.") # FIX: Correctly log 'delay'
 
 def get_random_proxy():
+    """Returns a random proxy from the list, or None if list is empty."""
     if PROXIES:
         proxy = random.choice(PROXIES)
         logging.debug(f"Using proxy: {proxy}")
@@ -49,12 +60,18 @@ def get_random_proxy():
     return None
 
 def init_driver(load_cookies=True, use_proxy=True):
+    """
+    Initialize a headless Chrome browser using undetected-chromedriver.
+    Optionally load cookies and use a random proxy.
+    """
     options = uc.ChromeOptions()
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--headless=new")
+    # FIX: Add a realistic User-Agent
+    options.add_argument(f"--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(100, 120)}.0.0.0 Safari/537.36") # Example recent Chrome UA
 
     proxy = get_random_proxy() if use_proxy and PROXIES else None
     if proxy:
@@ -73,18 +90,28 @@ def init_driver(load_cookies=True, use_proxy=True):
                 with open(COOKIE_FILE, "rb") as f:
                     cookies = pickle.load(f)
                     for c in cookies:
-                         if '.linkedin.com' in c.get('domain', ''):
+                         # FIX: Improve cookie domain check to handle both .linkedin.com and linkedin.com
+                         domain = c.get('domain', '')
+                         if domain.endswith('.linkedin.com') or domain == 'linkedin.com':
                              try:
                                 cookie_dict = {k: v for k, v in c.items() if k != 'sameSite'}
+                                # Adjust domain if it starts with '.' for add_cookie
+                                if cookie_dict.get('domain', '').startswith('.'):
+                                     cookie_dict['domain'] = cookie_dict['domain'][1:]
                                 driver.add_cookie(cookie_dict)
                              except Exception as add_cookie_e:
                                 logging.debug(f"Could not add cookie {c.get('name')}: {add_cookie_e}")
+                         else:
+                             logging.debug(f"Skipping cookie with incompatible domain: {domain}")
                 logging.debug("Attempted to load cookies.")
                 random_delay(1, 2)
-                driver.get("https://www.linkedin.com/feed") # Try navigating to logged-in page
+                # Try navigating to a page only accessible when logged in
+                driver.get("https://www.linkedin.com/feed")
                 random_delay(3, 5)
             except Exception as e:
                 logging.warning(f"Failed to load or apply cookies from {COOKIE_FILE}: {e}")
+        else:
+             logging.info("No cookies to load or load_cookies is False.")
 
         logging.info("WebDriver initialized successfully.")
         return driver
@@ -95,43 +122,48 @@ def init_driver(load_cookies=True, use_proxy=True):
         return None
 
 def safe_find_element(driver, by, value, timeout=ELEMENT_TIMEOUT):
+    """Safely find a VISIBLE element with WebDriverWait."""
     try:
+        # FIX: Only wait for visibility, remove presence fallback
         element = WebDriverWait(driver, timeout).until(
             EC.visibility_of_element_located((by, value))
         )
         logging.debug(f"Found element by {by}: {value}")
         return element
     except (TimeoutException, NoSuchElementException):
-        logging.debug(f"Element not found/visible within {timeout}s by {by}: {value}. Trying presence.")
-        try:
-             element = WebDriverWait(driver, timeout).until(
-                 EC.presence_of_element_located((by, value))
-             )
-             logging.debug(f"Found element by {by}: {value} via presence.")
-             return element
-        except (TimeoutException, NoSuchElementException):
-             logging.debug(f"Element not found/present within {timeout}s by {by}: {value}")
-             return None
+        # Log as debug because a missing element might be expected on some pages/states
+        logging.debug(f"Element not found or visible within {timeout}s located by {by}: {value}")
+        return None
     except Exception as e:
-        logging.error(f"Error finding element by {by}: {value} - {e}", exc_info=True)
+        logging.error(f"Error finding element located by {by}: {value} - {e}", exc_info=True)
         return None
 
 def check_for_captcha_or_block(driver):
+    """Checks if the current page might be a CAPTCHA, challenge, or block page."""
     try:
         source = driver.page_source.lower()
         url = driver.current_url.lower()
-        captcha_keywords = ["verify you are human", "captcha", "i'm not a robot"]
-        block_keywords = ["access to this page has been denied", "something went wrong", "too many requests", "page not found", "unavailable"]
 
-        if any(k in source for k in captcha_keywords + block_keywords) or \
-           "linkedin.com/checkpoint/challenge/" in url or \
-           "linkedin.com/error/" in url:
+        # FIX: Added specific LinkedIn challenge/error URL patterns
+        if "linkedin.com/checkpoint/challenge/" in url or \
+           "linkedin.com/in/unavailable/" in url or \
+           "linkedin.com/error/" in url or \
+           "access to this page has been denied" in source or \
+           "something went wrong" in source or \
+           "too many requests" in source or \
+           "verify you are human" in source or \
+           "captcha" in source:
              logging.warning(f"Potential CAPTCHA, challenge, or block detected. URL: {url}")
+             # Optional: save screenshot on detection
+             # try: driver.save_screenshot("block_detected.png") except: pass
              return True
 
+        # Also check for specific elements (less reliable than URL/source text)
         if safe_find_element(driver, By.ID, "login-submit") or \
            safe_find_element(driver, By.XPATH, "//*[contains(text(), 'Please verify you are not a robot') or contains(text(), 'security check')]"):
              logging.warning("Potential CAPTCHA or challenge element detected.")
+             # Optional: save screenshot
+             # try: driver.save_screenshot("challenge_element_detected.png") except: pass
              return True
 
     except WebDriverException as e:
@@ -150,6 +182,7 @@ def login():
 
     driver = None
     try:
+        logging.info("Attempting to initialize driver for login.")
         driver = init_driver(load_cookies=False, use_proxy=True)
         if not driver: return False
 
@@ -158,34 +191,51 @@ def login():
         random_delay(3, 5)
 
         if check_for_captcha_or_block(driver):
-             logging.error("Login page blocked or CAPTCHA.")
+             logging.error("Login page blocked or CAPTCHA. Automated login aborted.")
              return False
 
-        logging.info("Attempting login...")
-        user_f = safe_find_element(driver, By.ID, "username")
-        pass_f = safe_find_element(driver, By.ID, "password")
-        submit_b = safe_find_element(driver, By.CSS_SELECTOR, "button[type=submit]") or \
-                   safe_find_element(driver, By.XPATH, "//button[contains(., 'Sign in')]")
+        logging.info("Login form elements found, attempting input...")
+        user_f = safe_find_element(driver, By.ID, "username", timeout=ELEMENT_TIMEOUT)
+        pass_f = safe_find_element(driver, By.ID, "password", timeout=ELEMENT_TIMEOUT)
+        submit_b = safe_find_element(driver, By.CSS_SELECTOR, "button[type=submit]", timeout=ELEMENT_TIMEOUT) or \
+                   safe_find_element(driver, By.XPATH, "//button[contains(., 'Sign in')]", timeout=ELEMENT_TIMEOUT)
 
         if not all([user_f, pass_f, submit_b]):
-            logging.error("Login form elements not found.")
+            logging.error("Login form elements not found. Page structure changed?")
             return False
 
-        # Simulate typing
-        [user_f.send_keys(char) or time.sleep(random.uniform(0.05, 0.15)) for char in email]
+        # FIX: Change list comprehension to standard for loop for typing
+        logging.debug("Typing username...")
+        for char in email:
+            user_f.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
         random_delay(0.8, 1.5)
-        [pass_f.send_keys(char) or time.sleep(random.uniform(0.05, 0.15)) for char in password]
+
+        logging.debug("Typing password...")
+        for char in password:
+            pass_f.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
         random_delay(0.8, 1.5)
 
         submit_b.click()
         logging.info("Login form submitted.")
-        random_delay(6, 10)
+        random_delay(6, 10) # Wait for authentication and redirect
 
         current_url = driver.current_url
-        success_indicator = safe_find_element(driver, By.ID, "global-nav-search", timeout=20)
+        logging.debug(f"URL after login attempt: {current_url}")
+
+        # Check if login was successful
+        if check_for_captcha_or_block(driver):
+             logging.error("CAPTCHA, challenge, or block page displayed after login submission.")
+             # Optional: save screenshot
+             # try: driver.save_screenshot("login_failed_challenge.png") except: pass
+             return False
+
+        # Look for a common element on the feed page as a success indicator (after challenge check)
+        success_indicator = safe_find_element(driver, By.ID, "global-nav-search", timeout=20) # Search bar is usually present after login
 
         if success_indicator and ("feed" in current_url or "mynetwork" in current_url or "linkedin.com/in/" not in current_url):
-             logging.info("Login successful.")
+             logging.info("Login appears successful.")
              try:
                 with open(COOKIE_FILE, "wb") as f:
                     pickle.dump(driver.get_cookies(), f)
@@ -194,9 +244,10 @@ def login():
                  logging.warning(f"Failed to save cookies: {e}")
              return True
         else:
-             logging.warning(f"Login failed. URL: {current_url}. Indicator not found.")
-             if check_for_captcha_or_block(driver):
-                 logging.error("CAPTCHA/block after login submission.")
+             logging.warning(f"Login failed. URL: {current_url}. Success indicator not found.")
+             # This might happen if login failed silently (e.g. incorrect credentials without a clear error)
+             # Optional: save screenshot
+             # try: driver.save_screenshot("login_failed_generic.png") except: pass
              return False
 
     except Exception as e:
@@ -206,9 +257,11 @@ def login():
         if driver: driver.quit()
         logging.info("WebDriver quit after login.")
 
+
 def fetch_html(url):
     driver = None
     try:
+        logging.info("Attempting to initialize driver for fetching HTML.")
         driver = init_driver(load_cookies=True, use_proxy=True)
         if not driver:
             logging.error("Failed to init driver for fetch.")
@@ -220,8 +273,11 @@ def fetch_html(url):
 
         if check_for_captcha_or_block(driver):
              logging.error(f"Blocked or CAPTCHA on {url}.")
+             # Optional: save screenshot
+             # try: driver.save_screenshot("fetch_blocked.png") except: pass
              return None
 
+        # --- Dynamic Scrolling ---
         logging.info("Starting dynamic scrolling...")
         last_height = driver.execute_script("return document.body.scrollHeight")
         scroll_count = 0
@@ -244,14 +300,15 @@ def fetch_html(url):
             else:
                  scroll_attempts_without_growth = 0
 
+            # Check for block *during* scrolling as well
             if check_for_captcha_or_block(driver):
-                logging.warning("CAPTCHA/block detected during scrolling.")
+                logging.warning("CAPTCHA/block detected during scrolling. Stopping scroll.")
                 break
 
             last_height = new_height
 
         logging.info(f"Finished scrolling after {scroll_count} attempts.")
-        random_delay(2, 3)
+        random_delay(2, 3) # Final wait after scrolling finishes
 
         html = driver.page_source
         logging.info("HTML fetched successfully.")
@@ -304,7 +361,7 @@ def parse_profile(html):
         items = exp_sec.select(".pv-profile-section__card-item, .artdeco-list__item, .pv-position-entity, .pvs-list__paged-list-item")
         for item in items:
             role_el = item.select_one("h3, .pv-entity__summary-info h3, .t-bold span[aria-hidden='true'], .t-bold .visually-hidden + span")
-            comp_el = item.select_one(".pv-entity__secondary-title, .t-black--light span[aria-hidden='true']")
+            comp_el = item.select_one(".pv-entity__secondary-title, .t-black--light span[aria-hidden='true'], .t-normal.t-black--light span[aria-hidden='true']") # Added newer common class
             role = role_el.get_text(strip=True) if role_el else "N/A"
             company = comp_el.get_text(strip=True) if comp_el else "N/A"
             if role != "N/A" or company != "N/A":
@@ -344,7 +401,7 @@ def parse_profile(html):
 
 
 def format_bio(profile_data):
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
          logging.error("OPENAI_API_KEY env var not set.")
          return "Error: OpenAI API key missing."
@@ -387,7 +444,7 @@ def format_bio(profile_data):
         logging.info("Bio formatting successful.")
         return bio_text
 
-    except Exception as e:
+    except Exception as e: # Catching broad exception for simplicity here
         logging.error(f"OpenAI API error: {e}", exc_info=True)
         return f"Error: OpenAI API Error - {e}"
 
@@ -438,6 +495,7 @@ def main():
          # Optionally save HTML for debugging if you see this warning often
          # with open("debug_page.html", "w", encoding="utf-8") as f: f.write(html)
          # logging.info("HTML saved to debug_page.html.")
+         # sys.exit(1) # Uncomment to exit if core data is missing
 
 
     logging.info("✍️  Formatting bio with OpenAI...")
@@ -463,4 +521,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
