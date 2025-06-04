@@ -1,5 +1,4 @@
-selenium
-webdriver-manager
-beautifulsoup4
-openai
-python-dotenv 
+playwright==1.24.0
+openai==0.27.0
+python-dotenv==0.20.0
+
