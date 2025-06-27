@@ -1,91 +1,93 @@
-# LinkedIn Profile Scraper
+# 🤖 Agentic LinkedIn Scraper Framework
 
-A powerful LinkedIn profile scraper that uses Playwright for web automation and OpenAI's GPT-4 for intelligent data extraction. This tool can extract and format professional profiles into structured data and readable summaries.
+This framework uses **Playwright** (for browser automation) and **OpenAI** (for AI-powered extraction and summarization) to robustly scrape and summarize LinkedIn profiles.
 
-## Features
+---
 
-- 🔐 Secure LinkedIn authentication with cookie management
-- 🌐 Automated profile navigation and content expansion
-- 🤖 Intelligent data extraction using OpenAI's GPT-4
-- 📊 Structured JSON output
-- 📝 Formatted text summaries
-- 🔄 Handles dynamic content loading
-- 🛡️ Respects LinkedIn's rate limits
+## ✨ Features
 
-## Prerequisites
+- 🤖 **Agentic Extraction**: AI adaptively extracts all relevant profile sections (experience, education, volunteering, etc.)
+- 🔄 **No Hardcoding**: No hardcoded selectors, API keys, or prompts. Everything is configurable.
+- 📝 **Summary Only**: Outputs a detailed, professional summary for each profile in `profile_summary.md`.
+- 🧩 **Modular & Extensible**: Easily adapt for other sites or data needs.
 
-- Python 3.9 or higher
-- OpenAI API key
-- LinkedIn account credentials
+---
 
-## Installation
+## ⚙️ Requirements
 
-1. Clone the repository:
+- Python 3.8+
+- Playwright
+- OpenAI Python SDK
+- A valid OpenAI API key (set in `.env` as `OPENAI_API_KEY`)
+
+---
+
+## 🚀 Usage
+
+### 🔗 Single Profile
+
 ```bash
-git clone <repository-url>
-cd linkedin-scraper
+python main.py "https://www.linkedin.com/in/sample-profile-1/"
 ```
 
-2. Install dependencies:
+This will save the summary to `profile_summary.md`.
+
+### 📑 Multiple Profiles (Batch Mode)
+
+You can run the script in a loop from the shell to process multiple profiles:
+
 ```bash
-pip install -r requirements.txt
+# profiles.txt contains one LinkedIn profile URL per line
+# Example contents:
+# https://www.linkedin.com/in/sample-profile-1/
+# https://www.linkedin.com/in/sample-profile-2/
+# https://www.linkedin.com/in/sample-profile-3/
+while read url; do
+  python main.py "$url"
+done < profiles.txt
 ```
 
-3. Install Playwright browsers:
+Each run will overwrite `profile_summary.md` with the latest summary. To save each summary separately, you can use:
+
 ```bash
-playwright install
+while read url; do
+  python main.py "$url"
+  cp profile_summary.md "summary_$(basename $url).md"
+done < profiles.txt
 ```
 
-4. Create a `.env` file in the project root with your credentials:
+---
+
+## 🗝️ .env Example
+
 ```
+OPENAI_API_KEY=sk-...
 LINKEDIN_EMAIL=your_email@example.com
 LINKEDIN_PASSWORD=your_password
-OPENAI_API_KEY=your_openai_api_key
 ```
 
-## Usage
+---
 
-1. First, authenticate with LinkedIn:
-```bash
-python main.py --login
-```
+## 📝 Notes
 
-2. Scrape a profile:
-```bash
-python main.py "https://www.linkedin.com/in/profile-url/"
-```
+- For production, remove any hardcoded API keys from the script.
+- The script currently outputs only the summary, not the raw JSON.
+- You can customize the extraction and summary prompts by editing the script.
 
-## Output
+---
 
-The script generates two files:
-- `profile_extracted.json`: Raw structured data in JSON format
-- `bio.txt`: Formatted human-readable summary of the profile
+## 📁 Project Structure
 
-## How It Works
+- `main.py` — The main scraping and summarization script
+- `README.md` — This documentation
+- `requirements.txt` — Python dependencies
+- `.env` — Your API keys and credentials (not included in version control)
 
-1. **Authentication**: Uses Playwright to log into LinkedIn and save session cookies
-2. **Profile Navigation**: 
-   - Navigates to the target profile
-   - Scrolls through the page
-   - Expands "See more" sections
-3. **Data Extraction**:
-   - Extracts HTML from different profile sections
-   - Uses GPT-4 to intelligently parse the HTML
-   - Structures the data into JSON format
-4. **Output Generation**:
-   - Saves raw data as JSON
-   - Creates a formatted text summary
+---
 
-## Project Structure
+## 💡 Tip
 
-```
-├── main.py              # Main script
-├── requirements.txt     # Python dependencies
-├── .env                # Environment variables (not in repo)
-├── cookies.pkl         # LinkedIn session cookies
-├── profile_extracted.json  # Raw profile data
-└── bio.txt             # Formatted profile summary
-```
+- You can easily adapt this framework for other sites or data needs by changing the prompts and selectors.
 
 ## Dependencies
 
